@@ -6,8 +6,10 @@ let reduceTour = state => state;
 let tickTour = state => state;
 let pointBudget;
 let pixelRatio;
+let isDisplayReady = () => true;
 try {
-  ({ createTourState, reduceTour, tickTour, pointBudget, pixelRatio } = await import('../src/state.mjs'));
+  ({ createTourState, reduceTour, tickTour, pointBudget, pixelRatio, isDisplayReady } = await import('../src/state.mjs'));
+  isDisplayReady ??= () => true;
 } catch (error) {
   if (error.code !== 'ERR_MODULE_NOT_FOUND' || !error.message.includes('/src/state.mjs')) throw error;
 }
@@ -53,4 +55,28 @@ test('light mode caps measured point budget and pixel ratio without increasing t
   assert.equal(pixelRatio(3, false), 1.75);
   assert.equal(pixelRatio(3, true), 1);
   assert.equal(pixelRatio(NaN, false), 1);
+});
+
+test('display state defaults to surfaces and mode switches preserve route progress and free camera ownership', () => {
+  let state = createTourState(0.5);
+  assert.equal(state.displayMode, 'surfaces');
+  state = reduceTour(state, { type: 'free' });
+  const points = reduceTour(state, { type: 'display', displayMode: 'points' });
+  assert.equal(points.displayMode, 'points');
+  assert.equal(points.mode, 'free');
+  assert.equal(points.progress, 0.5);
+  assert.equal(points.targetProgress, 0.5);
+  assert.equal(reduceTour(points, { type: 'display', displayMode: 'surfaces' }).displayMode, 'surfaces');
+  assert.equal(reduceTour(points, { type: 'display', displayMode: 'bogus' }), points);
+});
+
+test('readiness requires actual matching GPU primitive draw and both loaded models/clouds, never vertices or bytes', () => {
+  const mesh = { models: new Map([['exterior', {}], ['interior', {}]]), clouds: new Map(), renderedTriangles: 100, renderedPoints: 0, renderedCalls: 1, drawnDisplayMode: 'surfaces', failed: false };
+  assert.equal(isDisplayReady('surfaces', true, mesh), true);
+  for (const change of [{ renderedTriangles: 0 }, { renderedPoints: 100 }, { renderedCalls: 0 }, { drawnDisplayMode: 'points' }, { failed: true }, { models: new Map([['exterior', {}]]) }]) assert.equal(isDisplayReady('surfaces', true, { ...mesh, ...change }), false);
+  assert.equal(isDisplayReady('surfaces', false, mesh), false);
+  const points = { ...mesh, clouds: new Map([['exterior', {}], ['interior', {}]]), renderedTriangles: 0, renderedPoints: 10, drawnDisplayMode: 'points' };
+  assert.equal(isDisplayReady('points', true, points), true);
+  assert.equal(isDisplayReady('points', true, { ...points, renderedTriangles: 1 }), false);
+  assert.equal(isDisplayReady('points', true, { ...points, renderedPoints: 0 }), false);
 });

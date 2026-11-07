@@ -2,11 +2,13 @@ import { clamp01 } from './route.mjs';
 
 export function createTourState(progress = 0) {
   const p = clamp01(progress);
-  return { mode: 'route', progress: p, targetProgress: p, returnElapsed: 0 };
+  return { mode: 'route', displayMode: 'surfaces', progress: p, targetProgress: p, returnElapsed: 0 };
 }
 
 export function reduceTour(state, event) {
   switch (event.type) {
+    case 'display':
+      return ['surfaces', 'points'].includes(event.displayMode) ? { ...state, displayMode: event.displayMode } : state;
     case 'scroll':
       return state.mode === 'free' ? state : { ...state, targetProgress: clamp01(event.progress) };
     case 'free':
@@ -34,6 +36,15 @@ export function tickTour(state, deltaSeconds, reducedMotion = false) {
 export function pointBudget(pointCount, lightMode) {
   if (!Number.isSafeInteger(pointCount) || pointCount < 0) return 0;
   return lightMode ? Math.min(pointCount, 200000) : pointCount;
+}
+
+// Asset counts alone are not a readiness signal. The last completed draw
+// must use the active primitive type; cached points must not leak into mesh.
+export function isDisplayReady(displayMode, assetsReady, scene) {
+  if (!assetsReady || !scene || scene.failed || scene.drawnDisplayMode !== displayMode || scene.renderedCalls <= 0) return false;
+  if (displayMode === 'surfaces') return ['exterior', 'interior'].every(id => scene.models.has(id)) && scene.renderedTriangles > 0 && scene.renderedPoints === 0;
+  if (displayMode === 'points') return ['exterior', 'interior'].every(id => scene.clouds.has(id)) && scene.renderedPoints > 0 && scene.renderedTriangles === 0;
+  return false;
 }
 
 export function pixelRatio(devicePixelRatio, lightMode) {

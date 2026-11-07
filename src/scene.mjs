@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { pointBudget, pixelRatio } from './state.mjs';
 import { pointVertexShader, pointFragmentShader } from './shaders.mjs';
+import { surfaceClipPlane, disposeSurface } from './surfaces.mjs';
 
 export class ScanScene {
   constructor(canvas, { lightMode, reducedMotion, onFailure }) {
@@ -9,6 +10,12 @@ export class ScanScene {
     this.lightMode = lightMode;
     this.reducedMotion = reducedMotion;
     this.clouds = new Map();
+    this.models = new Map();
+    this.displayMode = 'surfaces';
+    this.drawnDisplayMode = null;
+    this.renderedModels = new Set();
+    this.renderedTriangles = 0;
+    this.renderedCalls = 0;
     this.renderedClouds = new Set();
     this.renderedPoints = 0;
     this.renderedFrames = 0;
@@ -19,9 +26,16 @@ export class ScanScene {
     this.renderer.setClearColor(0x101212, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;
+    this.renderer.localClippingEnabled = true;
+    // Neutral white illumination: preserve the measured vertex colors, with
+    // gentle shape cues and no environment texture, hue cast or tone mapping.
+    this.scene.add(new THREE.AmbientLight(0xffffff, 2.4));
+    const key = new THREE.DirectionalLight(0xffffff, 0.9);
+    key.position.set(20, -15, 35);
+    this.scene.add(key);
     this.renderer.debug.onShaderError = () => {
       this.failed = true;
-      onFailure('Браузер не смог отрисовать облако точек. Попробуйте обновить браузер или включить аппаратное ускорение.', true);
+      onFailure('Браузер не смог отрисовать 3D-скан. Попробуйте обновить браузер или включить аппаратное ускорение.', true);
     };
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.03, 1500);
     this.camera.up.set(0, 0, 1);
@@ -43,6 +57,8 @@ export class ScanScene {
       event.preventDefault();
       this.failed = true;
       this.renderedPoints = 0;
+      this.renderedTriangles = 0;
+      this.renderedCalls = 0;
       onFailure('Контекст WebGL потерян. Закройте лишние вкладки и перезагрузите просмотр.', true);
     });
     this.resize();
@@ -74,12 +90,50 @@ export class ScanScene {
       points.material.dispose();
     }
     this.clouds.clear();
+    for (const { group } of this.models.values()) { this.scene.remove(group); disposeSurface(group); }
+    this.models.clear();
+    this.renderedModels.clear();
+    this.renderedTriangles = 0;
+    this.renderedCalls = 0;
+    this.drawnDisplayMode = null;
     this.renderedClouds.clear();
     this.renderedPoints = 0;
     this.dirty = true;
   }
 
+  setDisplayMode(displayMode) {
+    if (!['surfaces', 'points'].includes(displayMode)) throw new Error('Неизвестный режим просмотра.');
+    this.displayMode = displayMode;
+    this.renderedPoints = 0;
+    this.renderedTriangles = 0;
+    this.renderedCalls = 0;
+    this.drawnDisplayMode = null;
+    this.setCloudState(this.assetPose ?? { exterior: 1, interior: 0 }, this.sliceHeight ?? 1000000);
+    this.dirty = true;
+  }
+
+  addSurface(model, parsed) {
+    if (this.models.has(model.id)) return;
+    const { group, vertexCount, triangleCount } = parsed;
+    const clipPlane = surfaceClipPlane(1000000);
+    const materials = new Set();
+    group.traverse(object => {
+      if (!object.isMesh) return;
+      object.onAfterRender = () => this.renderedModels.add(model.id);
+      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+        materials.add(material);
+        material.clippingPlanes = [clipPlane];
+        material.needsUpdate = true;
+      }
+    });
+    this.models.set(model.id, { group, model, vertexCount, triangleCount, clipPlane, materials });
+    this.scene.add(group);
+    this.setCloudState(this.assetPose ?? { exterior: 1, interior: 0 }, this.sliceHeight ?? 1000000);
+    this.dirty = true;
+  }
+
   addCloud(cloud, decoded) {
+    if (this.clouds.has(cloud.id)) return;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(decoded.positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(decoded.colors, 3));
@@ -97,6 +151,7 @@ export class ScanScene {
     });
     const points = new THREE.Points(geometry, material);
     points.name = cloud.id;
+    points.visible = this.displayMode === 'points' && cloud.id === 'exterior';
     points.onAfterRender = () => this.renderedClouds.add(cloud.id);
     this.clouds.set(cloud.id, { points, cloud });
     this.scene.add(points);
@@ -143,13 +198,29 @@ export class ScanScene {
   }
 
   setCloudState(pose, sliceHeight) {
+    this.assetPose = pose;
+    this.sliceHeight = sliceHeight;
     for (const [id, { points }] of this.clouds) {
       const visibility = pose[id];
       const clipZ = id === 'interior' ? sliceHeight : 1000000;
       if (Math.abs(points.material.uniforms.uVisibility.value - visibility) > 1e-6 || points.material.uniforms.uClipZ.value !== clipZ) this.dirty = true;
       points.material.uniforms.uVisibility.value = visibility;
       points.material.uniforms.uClipZ.value = clipZ;
-      points.visible = visibility > 0.001;
+      points.visible = this.displayMode === 'points' && visibility > 0.001;
+    }
+    for (const [id, { group, materials, clipPlane }] of this.models) {
+      const visibility = pose[id];
+      const visible = this.displayMode === 'surfaces' && visibility > 0.001;
+      const clipZ = id === 'interior' ? sliceHeight : 1000000;
+      if (group.visible !== visible || clipPlane.constant !== clipZ) this.dirty = true;
+      group.visible = visible;
+      clipPlane.constant = clipZ;
+      for (const material of materials) {
+        if (Math.abs(material.opacity - visibility) > 1e-6) this.dirty = true;
+        const transparent = visibility < 0.999;
+        if (material.transparent !== transparent) { material.transparent = transparent; material.needsUpdate = true; }
+        material.opacity = visibility;
+      }
     }
   }
 
@@ -186,8 +257,11 @@ export class ScanScene {
     if (!this.dirty) return false;
     this.renderer.render(this.scene, this.camera);
     this.renderedPoints = this.renderer.info.render.points;
+    this.renderedTriangles = this.renderer.info.render.triangles;
+    this.renderedCalls = this.renderer.info.render.calls;
+    this.drawnDisplayMode = this.displayMode;
     this.renderedFrames++;
     this.dirty = false;
-    return !this.failed && this.renderedPoints > 0 && this.renderer.info.render.calls > 0;
+    return !this.failed && (this.renderedPoints > 0 || this.renderedTriangles > 0) && this.renderedCalls > 0;
   }
 }

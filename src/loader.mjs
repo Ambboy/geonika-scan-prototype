@@ -1,5 +1,5 @@
 export async function readCloud(url, cloud, { onProgress = () => {}, signal, fetchImpl = fetch } = {}) {
-  const response = await fetchImpl(url, { signal, credentials: 'same-origin' });
+  const response = await fetchImpl(url, { signal, credentials: 'same-origin', redirect: 'error' });
   if (!response.ok) throw new Error(`Не удалось загрузить ${cloud.id} (HTTP ${response.status}).`);
   let buffer;
   if (response.body?.getReader) {

@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "coordinateSystem": "right-handed-z-up",
+  "assetUpAxis": "Y",
+  "assetToSourceRotation": "x+90deg",
+  "sourcePointCount": 147010451,
+  "bounds": {
+    "min": [
+      -27.925113677978516,
+      -29.364999771118164,
+      -3.5978856086730957
+    ],
+    "max": [
+      39.30525207519531,
+      23.120485305786133,
+      10.13931655883789
+    ]
+  },
+  "interiorBounds": {
+    "min": [
+      2.9160046577453613,
+      -12.462868690490723,
+      -0.5265452265739441
+    ],
+    "max": [
+      19.248550415039062,
+      7.3169965744018555,
+      6.765379428863525
+    ]
+  },
+  "models": [
+    {
+      "id": "exterior",
+      "byteLength": 3511104,
+      "sha256": "aff2459925a56069202c93047be707b3d55b683d85b191906474cb51f4655a8b",
+      "vertexCount": 62729,
+      "triangleCount": 104298,
+      "sourcePointCount": 49524269,
+      "method": "full-LAS weighted 65mm voxels; sparse/statistical/KNN/covariance denoise; oriented BPA + 4cm supported plane occupancy regularization; dense-source support/component trim; bounded QEM; measured Linear-sRGB",
+      "file": "exterior.glb",
+      "bounds": {
+        "min": [
+          -27.925113677978516,
+          -29.364999771118164,
+          -3.5978856086730957
+        ],
+        "max": [
+          39.30525207519531,
+          23.120485305786133,
+          10.13931655883789
+        ]
+      },
+      "sourceSha256": "8721447de1240ee95fa3ff35a634feebc9ca271cd8515f1647a117607d032ee5",
+      "metrics": {
+        "planeCount": 29,
+        "degenerateTriangles": 0,
+        "connectedComponents": 84,
+        "meshSamplesToWholeSource65mmVoxelMeters": {
+          "count": 479921,
+          "median": 0.03063249582799533,
+          "p95": 0.0637022813156133,
+          "max": 0.13295964585484057
+        },
+        "cleanedPointsToMeshMeters": {
+          "count": 200000,
+          "median": 0.005382225848734379,
+          "p95": 2.8984997272491455,
+          "max": 13.014642715454102
+        }
+      }
+    },
+    {
+      "id": "interior",
+      "byteLength": 4987732,
+      "sha256": "dcda72251362841a03f4c7b6d3294179f336b2b9c4c511677dca461f05c07789",
+      "vertexCount": 88971,
+      "triangleCount": 148624,
+      "sourcePointCount": 97486182,
+      "method": "full-LAS weighted 65mm voxels; sparse/statistical/KNN/covariance denoise; oriented BPA + 4cm supported plane occupancy regularization; dense-source support/component trim; bounded QEM; measured Linear-sRGB",
+      "file": "interior.glb",
+      "bounds": {
+        "min": [
+          2.9160046577453613,
+          -12.462868690490723,
+          -0.5265452265739441
+        ],
+        "max": [
+          19.248550415039062,
+          7.3169965744018555,
+          6.765379428863525
+        ]
+      },
+      "sourceSha256": "51aa1a2d1a1cde1d59874e74c8a8bfdff21173c343ae089c08736f8595e1b7ab",
+      "metrics": {
+        "planeCount": 34,
+        "degenerateTriangles": 0,
+        "connectedComponents": 139,
+        "meshSamplesToWholeSource65mmVoxelMeters": {
+          "count": 683467,
+          "median": 0.02953849286620555,
+          "p95": 0.04959200474685639,
+          "max": 0.12302602133176394
+        },
+        "cleanedPointsToMeshMeters": {
+          "count": 200000,
+          "median": 0.0019920114427804947,
+          "p95": 0.03835922107100487,
+          "max": 0.9317258596420288
+        }
+      }
+    }
+  ],
+  "colorEncoding": "FLOAT VEC3 COLOR_0, Linear-sRGB from source uint16 / 65535, no textures",
+  "limitations": [
+    "No inferred invisible geometry; unmeasured regions remain open.",
+    "Planar inliers may move up to 4cm; support grid only closes sub-23cm gaps.",
+    "Not BIM or watertight; sparse vegetation, reflections and disconnected tiny fragments removed."
+  ]
+}

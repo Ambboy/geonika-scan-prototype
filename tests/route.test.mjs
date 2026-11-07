@@ -50,3 +50,31 @@ test('route framing actually depends on supplied measured bounds', () => {
   }
 });
 
+test('inside chapter frames measured room depth rather than a nearby blank wall', async () => {
+  const THREE = await import('three');
+  const { readFile } = await import('node:fs/promises');
+  const { parseSurface, disposeSurface } = await import('../src/surfaces.mjs');
+  const manifest = JSON.parse(await readFile(new URL('../public/data/surfaces.json', import.meta.url), 'utf8'));
+  const model = manifest.models.find(item => item.id === 'interior');
+  const raw = await readFile(new URL('../public/data/interior.glb', import.meta.url));
+  const { group } = await parseSurface(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength), model);
+  try {
+    const pose = sampleRoute(createRoute(manifest.bounds, manifest.interiorBounds), 0.5);
+    const camera = new THREE.PerspectiveCamera(50, 1.6, 0.03, 1500);
+    camera.up.set(0, 0, 1);
+    camera.position.fromArray(pose.position);
+    camera.lookAt(new THREE.Vector3(...pose.target));
+    camera.updateMatrixWorld(true);
+    const depths = [];
+    for (const x of [-0.4, 0, 0.4]) for (const y of [-0.4, 0, 0.4]) {
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(x, y), camera);
+      depths.push(ray.intersectObject(group, true)[0]?.distance ?? null);
+    }
+    // A measured framing guard, not a substitute for inspecting browser pixels.
+    // Ignore holes/no-hit rays: empty space alone cannot satisfy the check.
+    assert.ok(depths.filter(value => Number.isFinite(value) && value >= 3).length >= 6,
+      `The interior must show room depth in at least 6/9 central rays; actual: ${JSON.stringify(depths)}`);
+  } finally { disposeSurface(group); }
+});
+

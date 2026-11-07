@@ -1,12 +1,13 @@
 import './style.css';
-import { decodeCloud, validateManifest } from './cloud.mjs';
-import { readCloud } from './loader.mjs';
+import { decodeCloud } from './cloud.mjs';
+import { ScanAssets } from './assets.mjs';
 import { createRoute, sampleRoute, chapterIndex, progressFromScroll, scrollFromProgress, smoothstep, mixVector } from './route.mjs';
-import { createTourState, reduceTour, tickTour } from './state.mjs';
+import { createTourState, reduceTour, tickTour, isDisplayReady } from './state.mjs';
 import { ScanScene } from './scene.mjs';
 
 const $ = id => document.getElementById(id);
 const chapterButtons = Array.from(document.querySelectorAll('[data-chapter]'));
+const displayButtons = Array.from(document.querySelectorAll('[data-display]'));
 const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
 let reducedMotion = motionQuery.matches;
 let lightMode = window.matchMedia('(max-width: 600px)').matches || (navigator.deviceMemory && navigator.deviceMemory <= 4);
@@ -14,6 +15,8 @@ try { const stored = localStorage.getItem('geonika-light'); if (stored !== null)
 lightMode = Boolean(lightMode);
 let state = createTourState();
 let scene;
+let assets;
+let loadingPhase = 'initial';
 let manifest;
 let route;
 let ready = false;
@@ -41,6 +44,13 @@ Object.defineProperty(window, '__scanTour', {
         up: Object.freeze(scene ? scene.camera.up.toArray() : [0, 0, 1]),
       }),
       progress: state.progress, targetProgress: state.targetProgress, mode: state.mode,
+      displayMode: state.displayMode, loadingPhase,
+      loadedModels: Object.freeze(scene ? [...scene.models.keys()] : []),
+      renderedModels: Object.freeze(scene ? [...scene.renderedModels] : []),
+      modelCounts: Object.freeze(Object.fromEntries(scene ? [...scene.models].map(([id, value]) => [id, Object.freeze({ vertexCount: value.vertexCount, triangleCount: value.triangleCount })]) : [])),
+      // Actual submitted triangles, not points, pixels or clip survivors.
+      renderedTriangles: scene && !scene.failed ? scene.renderedTriangles : 0,
+      renderedCalls: scene && !scene.failed ? scene.renderedCalls : 0,
       loadedClouds: Object.freeze(scene ? [...scene.clouds.keys()] : []),
       renderedClouds: Object.freeze(scene ? [...scene.renderedClouds] : []),
       cloudPointCounts: Object.freeze(Object.fromEntries(scene ? [...scene.clouds].map(([id, value]) => [id, value.cloud.pointCount]) : [])),
@@ -60,6 +70,13 @@ function setEnabled(enabled) {
   $('mode-button').disabled = !enabled;
   chapterButtons.forEach(button => { button.disabled = !enabled; });
 }
+function displayUI(busy = false) {
+  displayButtons.forEach(button => {
+    button.setAttribute('aria-pressed', String(button.dataset.display === state.displayMode));
+    button.disabled = busy || !scene || scene.failed;
+  });
+  $('scan-canvas').setAttribute('aria-label', state.displayMode === 'surfaces' ? 'Цветная 3D-реконструкция поверхностей здания по реальному скану, не BIM' : 'Реальный 3D-скан здания, облако цветных точек');
+}
 function qualityUI() { $('quality-button').setAttribute('aria-pressed', String(lightMode)); }
 qualityUI();
 document.body.classList.add('is-loading');
@@ -68,12 +85,13 @@ function showFailure(message, reload = false, unavailable = false) {
   ready = false;
   assetsReady = false;
   failureMessage = message;
+  loadingPhase = 'error';
   reloadRequired = reload;
   abortController?.abort();
   if (state.mode === 'free') {
     document.body.classList.remove('is-free');
     scene?.setFree(false);
-    state = createTourState(state.progress);
+    state = { ...createTourState(state.progress), displayMode: state.displayMode };
   }
   $('chapter-copy').hidden = true;
   $('load-status').hidden = false;
@@ -86,6 +104,8 @@ function showFailure(message, reload = false, unavailable = false) {
   $('section-control').hidden = true;
   document.body.classList.remove('is-section');
   setEnabled(false);
+  displayUI();
+  updateModeUI();
   announce(message);
 }
 
@@ -116,7 +136,7 @@ function updateProgress(bytes) {
   $('load-percent').textContent = `${percent}%`;
 }
 
-async function loadScan() {
+async function loadScan(displayMode = state.displayMode) {
   const generation = ++loadGeneration;
   abortController?.abort();
   abortController = new AbortController();
@@ -125,61 +145,50 @@ async function loadScan() {
   assetsReady = false;
   failureMessage = null;
   reloadRequired = false;
-  state = createTourState();
-  route = null;
-  manifest = null;
-  activeChapter = -1;
-  clipOverride = null;
-  lastPoseProgress = NaN;
-  scene.clear();
-  document.body.classList.remove('is-free', 'is-section');
-  scene.setFree(false);
-  window.scrollTo({ top: 0, behavior: 'instant' });
+  state = reduceTour(state, { type: 'display', displayMode });
+  scene.setDisplayMode(displayMode);
   $('chapter-copy').hidden = true;
   $('load-status').hidden = false;
   $('load-status').setAttribute('aria-busy', 'true');
-  $('load-title').textContent = 'Открываем скан';
+  $('load-title').textContent = displayMode === 'surfaces' ? 'Открываем поверхности' : 'Открываем точки';
   $('load-message').textContent = 'Читаем манифест измерений…';
   $('load-progress').parentElement.hidden = false;
   $('retry-button').hidden = true;
   $('section-control').hidden = true;
-  $('point-count').textContent = 'Облака точек / LAS → WEBGL';
   document.body.classList.add('is-loading');
   totalBytes = 0;
   updateProgress(0);
   setEnabled(false);
-  updateModeUI();
+  displayUI(true);
   try {
-    const dataURL = new URL('data/', new URL(import.meta.env.BASE_URL, document.baseURI));
-    const response = await fetch(new URL('manifest.json', dataURL), { signal, credentials: 'same-origin', cache: 'no-cache' });
-    if (!response.ok) throw new Error(`Манифест скана недоступен (HTTP ${response.status}). Проверьте соединение и повторите.`);
-    let json;
-    try { json = await response.json(); } catch { throw new Error('Сервер вернул некорректный манифест скана.'); }
-    if (generation !== loadGeneration) return;
-    manifest = validateManifest(json);
-    route = createRoute(manifest.bounds, manifest.interiorBounds);
-    scene.setPose(sampleRoute(route, 0));
-    totalBytes = manifest.clouds.reduce((sum, cloud) => sum + cloud.byteLength, 0);
-    const totalPoints = manifest.clouds.reduce((sum, cloud) => sum + cloud.pointCount, 0);
-    $('point-count').textContent = `${totalPoints.toLocaleString('ru-RU')} точек в выборке`;
-    $('point-count').title = 'Общее число точек обоих подготовленных облаков; в кадре активны выбранные облака.';
-    $('slice-height').min = String(manifest.interiorBounds.min[2] + 0.05);
-    $('slice-height').max = String(manifest.interiorBounds.max[2]);
-    let completedBytes = 0;
-    // Exterior first makes the measured object visible while the interior loads.
-    for (const id of ['exterior', 'interior']) {
-      const cloud = manifest.clouds.find(item => item.id === id);
-      $('load-message').textContent = id === 'exterior' ? 'Загружаем наружный скан…' : 'Загружаем внутренний скан…';
-      const buffer = await readCloud(new URL(cloud.file, dataURL), cloud, { signal, onProgress: bytes => updateProgress(completedBytes + bytes) });
-      $('load-message').textContent = `Проверяем и декодируем ${id === 'exterior' ? 'наружное' : 'внутреннее'} облако…`;
-      const decoded = await decodeInWorker(buffer, cloud, signal);
-      if (generation !== loadGeneration || signal.aborted) return;
-      scene.addCloud(cloud, decoded);
-      completedBytes += cloud.byteLength;
-      updateProgress(completedBytes);
-    }
+    manifest = await assets.load(displayMode, {
+      signal,
+      onPhase: (phase, id) => {
+        loadingPhase = phase;
+        const side = id === 'exterior' ? 'наружную' : 'внутреннюю';
+        $('load-message').textContent = phase === 'manifest' ? 'Читаем манифест измерений…' : phase === 'download' ? `Загружаем ${side} часть скана…` : displayMode === 'surfaces' ? 'SHA-256 совпала. Разбираем треугольники GLB…' : 'SHA-256 совпала. Декодируем измеренные точки…';
+      },
+      onManifest: current => {
+        // Keep one route/source frame when comparing displays. Switching a
+        // representation never resets scroll, clip height or free-camera pose.
+        if (!route) {
+          route = createRoute(current.bounds, current.interiorBounds);
+          scene.setPose(sampleRoute(route, state.progress));
+          $('slice-height').min = String(current.interiorBounds.min[2] + 0.05);
+          $('slice-height').max = String(current.interiorBounds.max[2]);
+        }
+        const surfaces = displayMode === 'surfaces';
+        const count = surfaces ? current.models.reduce((sum, item) => sum + item.triangleCount, 0) : current.clouds.reduce((sum, item) => sum + item.pointCount, 0);
+        $('point-count').textContent = `${count.toLocaleString('ru-RU')} ${surfaces ? 'треугольников' : 'точек в выборке'}`;
+        $('point-count').title = surfaces ? 'Сумма треугольников двух реконструированных моделей; не число видимых пикселей.' : 'Сумма измеренных точек двух подготовленных облаков; не число видимых пикселей.';
+      },
+      onProgress: (bytes, total) => { totalBytes = total; updateProgress(bytes); },
+      onAsset: (meta, value) => displayMode === 'surfaces' ? scene.addSurface(meta, value) : scene.addCloud(meta, value),
+    });
+    if (generation !== loadGeneration || signal.aborted) return;
     assetsReady = true;
-    $('load-message').textContent = 'Данные проверены. Отрисовываем первый кадр WebGL…';
+    loadingPhase = 'drawing';
+    $('load-message').textContent = 'Обе части проверены. Отрисовываем первый кадр WebGL…';
     scene.dirty = true;
   } catch (error) {
     if (error.name !== 'AbortError' && generation === loadGeneration) showFailure(error.message);
@@ -255,13 +264,17 @@ function updateChapterUI(pose) {
     $('slice-value').value = `${height.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} м`;
     $('slice-height').setAttribute('aria-valuetext', `${height.toFixed(2)} метра по оси Z`);
   }
-  $('exterior-indicator').classList.toggle('is-visible', pose.exterior > 0.01 && scene.clouds.has('exterior'));
-  $('interior-indicator').classList.toggle('is-visible', pose.interior > 0.01 && scene.clouds.has('interior'));
+  const active = state.displayMode === 'surfaces' ? scene.models : scene.clouds;
+  $('exterior-indicator').classList.toggle('is-visible', pose.exterior > 0.01 && active.has('exterior'));
+  $('interior-indicator').classList.toggle('is-visible', pose.interior > 0.01 && active.has('interior'));
   document.documentElement.style.setProperty('--route-progress', `${pose.progress * 100}%`);
   $('route-percent').textContent = `${Math.round(pose.progress * 100)}%`;
   return height;
 }
 
+displayButtons.forEach(button => button.addEventListener('click', () => {
+  if (button.dataset.display !== state.displayMode) loadScan(button.dataset.display);
+}));
 $('mode-button').addEventListener('click', () => state.mode === 'free' ? returnToRoute() : enterFree());
 chapterButtons.forEach(button => button.addEventListener('click', () => goToChapter(Number(button.dataset.chapter))));
 $('quality-button').addEventListener('click', () => {
@@ -269,7 +282,7 @@ $('quality-button').addEventListener('click', () => {
   try { localStorage.setItem('geonika-light', String(lightMode)); } catch { /* optional preference */ }
   qualityUI();
   scene?.setQuality(lightMode);
-  announce(lightMode ? 'Облегчённый режим: не более 200 тысяч точек на облако и pixel ratio 1.' : 'Полная подготовленная выборка. Pixel ratio ограничен 1,75.');
+  announce(lightMode ? 'Облегчённый режим: pixel ratio 1. В режиме точек — не более 200 тысяч на облако. Геометрия поверхностей сохранена.' : 'Полная подготовленная геометрия. Pixel ratio ограничен 1,75.');
 });
 $('slice-height').addEventListener('input', event => {
   clipOverride = Number(event.target.value);
@@ -331,23 +344,27 @@ function animate(timestamp) {
     lastPoseProgress = state.progress;
     lastRenderedMode = state.mode;
   }
-  const drewPoints = scene.render();
-  if (!ready && assetsReady && drewPoints && scene.renderedPoints > 0 && scene.clouds.size === 2) {
+  const drewGeometry = scene.render();
+  if (!ready && drewGeometry && isDisplayReady(state.displayMode, assetsReady, scene)) {
     // "Ready" is only reported after actual renderer draw counters, never
     // after fetch(), decode, buffer allocation, or a timed loading animation.
     ready = true;
+    loadingPhase = 'ready';
+    displayUI();
     $('load-status').hidden = true;
     $('load-status').setAttribute('aria-busy', 'false');
     $('chapter-copy').hidden = false;
     document.body.classList.remove('is-loading');
     setEnabled(true);
-    announce('Оба облака загружены и проверены. Первый кадр скана отрисован.');
+    announce(state.displayMode === 'surfaces' ? 'Обе модели загружены и проверены. Треугольники поверхностей отрисованы.' : 'Оба облака загружены и проверены. Измеренные точки отрисованы.');
   }
 }
 
 try {
   scene = new ScanScene($('scan-canvas'), { lightMode, reducedMotion, onFailure: showFailure });
+  assets = new ScanAssets({ dataURL: new URL('data/', new URL(import.meta.env.BASE_URL, document.baseURI)), decodePoints: decodeInWorker });
   history.scrollRestoration = 'manual';
+  window.scrollTo({ top: 0, behavior: 'instant' });
   window.requestAnimationFrame(animate);
   loadScan();
 } catch {

@@ -1,0 +1,9 @@
+# Exact CPU geometry/runtime tested locally; no proprietary/network services.
+# Python 3.11+. On a minimal Linux host Open3D also needs a libEGL1 runtime;
+# the production run used the private mesh-venv/graphics library path.
+numpy==2.5.4
+scipy==1.18.1
+open3d-cpu==0.20.0
+Pillow==13.0.0
+trimesh==5.2.0
+fast-simplification==0.2.0

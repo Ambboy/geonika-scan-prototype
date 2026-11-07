@@ -15,7 +15,7 @@ export default defineConfig({
   },
   webServer: {
     cwd: fileURLToPath(new URL('..', import.meta.url)),
-    command: 'node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4178 --strictPort --base /geonika-scan-prototype/',
+    command: `node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4178 --strictPort --outDir ${JSON.stringify(process.env.SCAN_BUILD_DIR || 'docs')} --base /geonika-scan-prototype/`,
     url: 'http://127.0.0.1:4178/geonika-scan-prototype/',
     reuseExistingServer: false, timeout: 20000,
   },

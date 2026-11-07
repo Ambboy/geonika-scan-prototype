@@ -51,6 +51,12 @@ p, h1, h2 { margin: 0; }
 .help-content strong { font-weight: 500; color: var(--ink); }
 .muted { color: var(--muted); }
 .scan-meta { position: fixed; z-index: 2; top: 112px; right: 36px; text-align: right; pointer-events: none; font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+.display-switch { display: flex; justify-content: flex-end; margin-bottom: 13px; pointer-events: auto; }
+.display-switch button { min-width: 66px; min-height: 44px; padding: 0 13px; background: var(--bg); border: 1px solid var(--line); font-size: 11px; }
+.display-switch button + button { border-left: none; }
+.display-switch button[aria-pressed="true"] { color: var(--accent); background: #22251f; box-shadow: inset 0 -2px var(--accent); }
+.display-switch button:not(:disabled):hover { color: var(--ink); }
+.reconstruction-note { margin-top: 8px; font-family: Arial, sans-serif; font-size: 10px; color: var(--muted); }
 .cloud-indicators { display: flex; justify-content: flex-end; gap: 18px; font-size: 9px; letter-spacing: .08em; }
 .cloud-indicators span { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .cloud-indicators i { width: 4px; height: 4px; border: 1px solid var(--muted); border-radius: 50%; }
