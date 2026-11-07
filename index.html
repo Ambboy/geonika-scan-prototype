@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#101212" />
+    <meta name="description" content="Интерактивный прототип Геоники: реальное облако точек, маршрут камеры и свободный осмотр 3D-скана." />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <title>ГЕОНИКА — пространство в точках</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#tour-controls">К управлению сканом</a>
+    <main id="experience" aria-label="Интерактивный просмотр реального 3D-скана">
+      <canvas id="scan-canvas" tabindex="0" role="img" aria-label="Реальный 3D-скан здания, облако цветных точек" aria-describedby="control-help"></canvas>
+      <div id="scroll-track" aria-hidden="true"></div>
+    </main>
+
+    <header class="masthead">
+      <div class="identity" aria-label="ГЕОНИКА / 3D-СКАН / ПРОТОТИП">
+        <span class="wordmark">ГЕОНИКА<span class="brand-point" aria-hidden="true">.</span></span>
+        <span class="identity-meta">3D-СКАН <span aria-hidden="true">/</span> ПРОТОТИП</span>
+      </div>
+      <div class="header-controls">
+        <button id="quality-button" class="quiet-button quality-button" type="button" aria-pressed="false" title="Меньше точек и ниже разрешение для слабых устройств">Облегчённый <span class="toggle-dot" aria-hidden="true"></span></button>
+        <details id="help" class="help">
+          <summary aria-label="Как управлять просмотром"><span aria-hidden="true">?</span></summary>
+          <div class="help-content" id="control-help">
+            <h2>Как смотреть</h2>
+            <p><strong>Маршрут</strong> — листайте страницу вперёд или назад. Главы открываются кнопками ниже.</p>
+            <p><strong>Свободный осмотр</strong> — перетаскивайте для вращения, колесо или щипок для приближения. Правая кнопка или два пальца — сдвиг.</p>
+            <p><strong>Клавиатура</strong> — ← / → и Page Up / Down: главы; Home / End: начало / конец. F: свободный осмотр. Esc: вернуться. В свободном режиме стрелки вращают, + / − приближают; Shift + стрелки сдвигают.</p>
+            <p>Срез скрывает точки выше выбранной отметки Z. Отсутствующие поверхности не дорисованы.</p>
+            <p class="muted">Демонстрационный маршрут, не проверенный проход через дверь. Система правая, Z вверх; геодезический CRS не заявляется.</p>
+          </div>
+        </details>
+      </div>
+    </header>
+
+    <aside class="scan-meta" aria-label="Данные скана">
+      <div class="cloud-indicators"><span id="exterior-indicator"><i aria-hidden="true"></i>СНАРУЖИ</span><span id="interior-indicator"><i aria-hidden="true"></i>ВНУТРИ</span></div>
+      <p id="point-count">Облака точек / LAS → WEBGL</p>
+      <span class="coordinate-label">XYZ <span aria-hidden="true">·</span> Z ↑ <span aria-hidden="true">·</span> RGB</span>
+    </aside>
+
+    <section id="load-status" class="load-status" role="status" aria-live="polite" aria-atomic="true" aria-busy="true">
+      <span class="eyebrow">ПРОСТРАНСТВО В ТОЧКАХ</span>
+      <h1 id="load-title">Открываем скан</h1>
+      <p id="load-message">Подготавливаем реальное облако точек…</p>
+      <div class="load-progress"><progress id="load-progress" max="100" value="0" aria-label="Загрузка данных скана"></progress><span id="load-percent" aria-hidden="true">0%</span></div>
+      <button id="retry-button" class="action-button" type="button" hidden>Повторить загрузку <span aria-hidden="true">↻</span></button>
+    </section>
+
+    <section id="chapter-copy" class="chapter-copy" aria-live="polite" aria-atomic="true" hidden>
+      <span id="chapter-eyebrow" class="eyebrow">01 / СНАРУЖИ</span>
+      <h1 id="chapter-title">Общий вид</h1>
+      <p id="chapter-description">Реальный объект. Миллионы измерений, ни одной дорисованной поверхности.</p>
+    </section>
+
+    <div class="controls-dock" id="tour-controls" tabindex="-1">
+      <div id="section-control" class="section-control" hidden>
+        <label for="slice-height">Срез по высоте Z <output id="slice-value" for="slice-height">—</output></label>
+        <input id="slice-height" type="range" min="0" max="10" step="0.05" value="5" aria-label="Высота среза интерьера по оси Z" />
+      </div>
+      <button id="mode-button" class="action-button mode-button" type="button" aria-pressed="false" disabled><svg aria-hidden="true" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="10" ry="4.5" transform="rotate(-35 12 12)"/><path d="M12 2v20M2 12h20"/></svg><span id="mode-label">Свободный осмотр</span><span class="button-arrow" aria-hidden="true">↗</span></button>
+      <p id="mode-hint">Свой ракурс — в любой момент</p>
+    </div>
+
+    <footer class="tour-footer">
+      <div class="footer-caption"><span id="scroll-hint"><span aria-hidden="true">↓</span> Листайте, чтобы менять ракурс</span><span class="route-disclaimer">Маршрут демонстрационный · проход через дверь не проверен</span><span id="route-percent" aria-label="Прогресс маршрута">0%</span></div>
+      <nav id="chapters" class="chapters" aria-label="Главы маршрута">
+        <button type="button" data-chapter="0" aria-current="step" disabled><span class="chapter-number">01</span><span>Общий вид</span></button>
+        <button type="button" data-chapter="1" disabled><span class="chapter-number">02</span><span>Фасад</span></button>
+        <button type="button" data-chapter="2" disabled><span class="chapter-number">03</span><span>Внутри</span></button>
+        <button type="button" data-chapter="3" disabled><span class="chapter-number">04</span><span>Срез</span></button>
+        <button type="button" data-chapter="4" disabled><span class="chapter-number">05</span><span>Обзор</span></button>
+      </nav>
+    </footer>
+    <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+    <noscript><section class="noscript"><h1>Для просмотра нужен JavaScript</h1><p>Здесь интерактивный WebGL-скан, а не видео. Разрешите JavaScript в настройках браузера.</p></section></noscript>
+    <script type="module" src="/src/main.mjs"></script>
+  </body>
+</html>

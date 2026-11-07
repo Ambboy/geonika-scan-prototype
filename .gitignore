@@ -1,0 +1,15 @@
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+.source/
+*.las
+*.laz
+*.7z
+*.eml
+.DS_Store
+playwright-report/
+test-results/
+*.log
+.env
+.env.*
